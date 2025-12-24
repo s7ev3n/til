@@ -1,0 +1,60 @@
+name: Sync to BlogSpace
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      # ────────────────────────────────────────────────────────
+      # Step 1: 检出内容仓库
+      # ────────────────────────────────────────────────────────
+      - name: Checkout content repo
+        uses: actions/checkout@v4
+        with:
+          path: content  # 检出到 ./content 目录
+
+      # ────────────────────────────────────────────────────────
+      # Step 2: 检出目标博客仓库
+      # ────────────────────────────────────────────────────────
+      - name: Checkout blog repo
+        uses: actions/checkout@v4
+        with:
+          repository: s7ev3n/blog.space  # 目标仓库
+          path: blog                      # 检出到 ./blog 目录
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ────────────────────────────────────────────────────────
+      # Step 3: 同步内容
+      # ────────────────────────────────────────────────────────
+      - name: Sync content
+        run: |
+          rsync -av --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            content/ blog/src/content/post/
+
+      # ────────────────────────────────────────────────────────
+      # Step 4: 提交并推送到博客仓库
+      # ────────────────────────────────────────────────────────
+      - name: Commit and push
+        run: |
+          cd blog
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # 检查是否有变更
+          git add src/content/post
+          
+          # 只有有变更时才 commit
+          git diff --staged --quiet || \
+          git commit -m "Sync content from blog-content@$(cd ../content && git rev-parse --short HEAD)"
+          
+          # 推送
+          git push
