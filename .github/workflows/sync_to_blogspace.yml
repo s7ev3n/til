@@ -1,4 +1,4 @@
-name: Sync to BlogSpace
+name: sync to blog.space
 
 on:
   push:
@@ -10,7 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      issues: write  # 添加创建 issue 的权限
+      issues: write        # 创建 issue 的权限
+      pull-requests: write # 创建 PR 的权限
 
     steps:
       # ────────────────────────────────────────────────────────
@@ -42,27 +43,79 @@ jobs:
             content/ blog/src/content/post/
 
       # ────────────────────────────────────────────────────────
-      # Step 4: 提交并推送到博客仓库
+      # Step 4: 提交并推送到新分支
       # ────────────────────────────────────────────────────────
-      - name: Commit and push
+      - name: Commit and push to new branch
         id: commit-push
         run: |
           cd blog
+
+          # 配置 git
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 创建唯一的分支名
+          BRANCH="content/til-sync-$(date +%s)"
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+
+          # 创建并切换到新分支
+          git checkout -b "$BRANCH"
 
           # 检查是否有变更
           git add src/content/post
 
-          # 只有有变更时才 commit
-          git diff --staged --quiet || \
-          git commit -m "Sync content from blog-content@$(cd ../content && git rev-parse --short HEAD)"
-
-          # 推送
-          git push
+          # 只有有变更时才 commit 和 push
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            git commit -m "Sync content from til@$(cd ../content && git rev-parse --short HEAD)"
+            git push origin "$BRANCH"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
 
       # ────────────────────────────────────────────────────────
-      # Step 5: 失败时创建 Issue 通知
+      # Step 5: 自动创建 PR
+      # ────────────────────────────────────────────────────────
+      - name: Create Pull Request
+        if: steps.commit-push.outputs.has_changes == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = '${{ steps.commit-push.outputs.branch }}';
+
+            // 检查是否已有来自 content/* 分支的 PR
+            const { data: pulls } = await github.rest.pulls.list({
+              owner: 's7ev3n',
+              repo: 'blog.space',
+              state: 'open',
+              head: 's7ev3n:' + branch
+            });
+
+            // 如果没有 PR，则创建
+            if (pulls.length === 0) {
+              const { data: pr } = await github.rest.pulls.create({
+                owner: 's7ev3n',
+                repo: 'blog.space',
+                title: '📝 自动同步博客内容',
+                body: `由 [til](https://github.com/s7ev3n/til) 仓库触发自动同步
+
+              ---
+              **分支**: \`${branch}\`
+              **触发时间**: ${new Date().toISOString()}
+              **同步来源**: [til@${{ steps.commit-push.outputs.sha }}](https://github.com/s7ev3n/til/commit/${{ steps.commit-push.outputs.sha }})`,
+                head: branch,
+                base: 'main',
+                labels: ['automated', 'content-sync']
+              });
+
+              console.log('✅ PR created:', pr.html_url);
+            } else {
+              console.log('ℹ️ PR already exists:', pulls[0].html_url);
+            }
+
+      # ────────────────────────────────────────────────────────
+      # Step 6: 失败时创建 Issue 通知
       # ────────────────────────────────────────────────────────
       - name: Notify on failure
         if: failure()
