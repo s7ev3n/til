@@ -33,30 +33,7 @@ jobs:
           token: ${{ secrets.BLOG_SYNC_TOKEN }}
 
       # ────────────────────────────────────────────────────────
-      # Step 3: 同步内容
-      # ────────────────────────────────────────────────────────
-      - name: Sync content
-        run: |
-          echo "=== Before rsync: content directory ==="
-          ls -la content/
-          echo ""
-          echo "=== Before rsync: blog/src/content/post directory ==="
-          ls -la blog/src/content/post/ || echo "Directory does not exist yet"
-          echo ""
-
-          rsync -av --delete \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='.scripts' \
-            --exclude='LICENSE' \
-            content/ blog/src/content/post/
-
-          echo ""
-          echo "=== After rsync: blog/src/content/post directory ==="
-          ls -la blog/src/content/post/
-
-      # ────────────────────────────────────────────────────────
-      # Step 4: 提交并推送到新分支
+      # Step 3: 提交并推送到新分支
       # ────────────────────────────────────────────────────────
       - name: Commit and push to new branch
         id: commit-push
@@ -74,19 +51,19 @@ jobs:
           BRANCH="content/til-sync-$(date +%s)"
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
 
-          # 创建并切换到新分支
+          # 先创建并切换到新分支（在 rsync 之前的状态）
           git checkout -b "$BRANCH"
+
+          # 现在 rsync 会在这个新分支上产生变更
+          rsync -av --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.scripts' \
+            --exclude='LICENSE' \
+            ../content/ src/content/post/
 
           # 检查是否有变更
           git add src/content/post
-
-          # 调试信息：查看 staged 的变更
-          echo "=== Git Status ==="
-          git status
-          echo "=== Git Diff Summary ==="
-          git diff --staged --stat
-          echo "=== Git Diff Details ==="
-          git diff --staged
 
           # 只有有变更时才 commit 和 push
           if git diff --staged --quiet; then
@@ -99,7 +76,7 @@ jobs:
           fi
 
       # ────────────────────────────────────────────────────────
-      # Step 5: 自动创建 PR
+      # Step 4: 自动创建 PR
       # ────────────────────────────────────────────────────────
       - name: Create Pull Request
         if: steps.commit-push.outputs.has_changes == 'true'
@@ -139,7 +116,7 @@ jobs:
             }
 
       # ────────────────────────────────────────────────────────
-      # Step 6: 失败时创建 Issue 通知
+      # Step 5: 失败时创建 Issue 通知
       # ────────────────────────────────────────────────────────
       - name: Notify on failure
         if: failure()
