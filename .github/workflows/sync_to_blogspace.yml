@@ -30,7 +30,7 @@ jobs:
         with:
           repository: s7ev3n/blog.space  # 目标仓库
           path: blog                      # 检出到 ./blog 目录
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.BLOG_SYNC_TOKEN }}
 
       # ────────────────────────────────────────────────────────
       # Step 3: 同步内容
@@ -40,6 +40,8 @@ jobs:
           rsync -av --delete \
             --exclude='.git' \
             --exclude='.github' \
+            --exclude='.scripts' \
+            --exclude='LICENSE' \
             content/ blog/src/content/post/
 
       # ────────────────────────────────────────────────────────
@@ -53,6 +55,9 @@ jobs:
           # 配置 git
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 配置 remote 使用 PAT
+          git remote set-url origin https://x-access-token:${{ secrets.BLOG_SYNC_TOKEN }}@github.com/s7ev3n/blog.space.git
 
           # 创建唯一的分支名
           BRANCH="content/til-sync-$(date +%s)"
