@@ -37,12 +37,23 @@ jobs:
       # ────────────────────────────────────────────────────────
       - name: Sync content
         run: |
+          echo "=== Before rsync: content directory ==="
+          ls -la content/
+          echo ""
+          echo "=== Before rsync: blog/src/content/post directory ==="
+          ls -la blog/src/content/post/ || echo "Directory does not exist yet"
+          echo ""
+
           rsync -av --delete \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='.scripts' \
             --exclude='LICENSE' \
             content/ blog/src/content/post/
+
+          echo ""
+          echo "=== After rsync: blog/src/content/post directory ==="
+          ls -la blog/src/content/post/
 
       # ────────────────────────────────────────────────────────
       # Step 4: 提交并推送到新分支
@@ -68,6 +79,14 @@ jobs:
 
           # 检查是否有变更
           git add src/content/post
+
+          # 调试信息：查看 staged 的变更
+          echo "=== Git Status ==="
+          git status
+          echo "=== Git Diff Summary ==="
+          git diff --staged --stat
+          echo "=== Git Diff Details ==="
+          git diff --staged
 
           # 只有有变更时才 commit 和 push
           if git diff --staged --quiet; then
