@@ -1,0 +1,149 @@
+name: sync to blog.space
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write        # 创建 issue 的权限
+      pull-requests: write # 创建 PR 的权限
+
+    steps:
+      # ────────────────────────────────────────────────────────
+      # Step 1: 检出内容仓库
+      # ────────────────────────────────────────────────────────
+      - name: Checkout content repo
+        uses: actions/checkout@v4
+        with:
+          path: content  # 检出到 ./content 目录
+
+      # ────────────────────────────────────────────────────────
+      # Step 2: 检出目标博客仓库
+      # ────────────────────────────────────────────────────────
+      - name: Checkout blog repo
+        uses: actions/checkout@v4
+        with:
+          repository: s7ev3n/blog.space  # 目标仓库
+          path: blog                      # 检出到 ./blog 目录
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ────────────────────────────────────────────────────────
+      # Step 3: 同步内容
+      # ────────────────────────────────────────────────────────
+      - name: Sync content
+        run: |
+          rsync -av --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            content/ blog/src/content/post/
+
+      # ────────────────────────────────────────────────────────
+      # Step 4: 提交并推送到新分支
+      # ────────────────────────────────────────────────────────
+      - name: Commit and push to new branch
+        id: commit-push
+        run: |
+          cd blog
+
+          # 配置 git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 创建唯一的分支名
+          BRANCH="content/til-sync-$(date +%s)"
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+
+          # 创建并切换到新分支
+          git checkout -b "$BRANCH"
+
+          # 检查是否有变更
+          git add src/content/post
+
+          # 只有有变更时才 commit 和 push
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            git commit -m "Sync content from til@$(cd ../content && git rev-parse --short HEAD)"
+            git push origin "$BRANCH"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      # ────────────────────────────────────────────────────────
+      # Step 5: 自动创建 PR
+      # ────────────────────────────────────────────────────────
+      - name: Create Pull Request
+        if: steps.commit-push.outputs.has_changes == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = '${{ steps.commit-push.outputs.branch }}';
+
+            // 检查是否已有来自 content/* 分支的 PR
+            const { data: pulls } = await github.rest.pulls.list({
+              owner: 's7ev3n',
+              repo: 'blog.space',
+              state: 'open',
+              head: 's7ev3n:' + branch
+            });
+
+            // 如果没有 PR，则创建
+            if (pulls.length === 0) {
+              const { data: pr } = await github.rest.pulls.create({
+                owner: 's7ev3n',
+                repo: 'blog.space',
+                title: '📝 自动同步博客内容',
+                body: `由 [til](https://github.com/s7ev3n/til) 仓库触发自动同步
+
+              ---
+              **分支**: \`${branch}\`
+              **触发时间**: ${new Date().toISOString()}
+              **同步来源**: [til@${{ steps.commit-push.outputs.sha }}](https://github.com/s7ev3n/til/commit/${{ steps.commit-push.outputs.sha }})`,
+                head: branch,
+                base: 'main',
+                labels: ['automated', 'content-sync']
+              });
+
+              console.log('✅ PR created:', pr.html_url);
+            } else {
+              console.log('ℹ️ PR already exists:', pulls[0].html_url);
+            }
+
+      # ────────────────────────────────────────────────────────
+      # Step 6: 失败时创建 Issue 通知
+      # ────────────────────────────────────────────────────────
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'sync-failed'
+            });
+
+            // 如果已经有未关闭的同步失败 issue，就更新它
+            if (issues.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues[0].number,
+                body: `### ❌ 同步再次失败\n\n**时间**: ${new Date().toISOString()}\n**Workflow**: [#${context.runNumber}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n\n---\n请检查 workflow 日志排查问题。`
+              });
+            } else {
+              // 否则创建新的 issue
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: '❌ 内容同步失败',
+                body: `### 博客内容同步失败\n\n**时间**: ${new Date().toISOString()}\n**Commit**: ${context.sha}\n**Workflow**: [#${context.runNumber}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n\n---\n请检查 [workflow 日志](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) 排查问题。`,
+                labels: ['sync-failed', 'bug']
+              });
+            }
