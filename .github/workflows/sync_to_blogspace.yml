@@ -10,7 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
+      issues: write  # 添加创建 issue 的权限
+
     steps:
       # ────────────────────────────────────────────────────────
       # Step 1: 检出内容仓库
@@ -44,17 +45,52 @@ jobs:
       # Step 4: 提交并推送到博客仓库
       # ────────────────────────────────────────────────────────
       - name: Commit and push
+        id: commit-push
         run: |
           cd blog
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
+
           # 检查是否有变更
           git add src/content/post
-          
+
           # 只有有变更时才 commit
           git diff --staged --quiet || \
           git commit -m "Sync content from blog-content@$(cd ../content && git rev-parse --short HEAD)"
-          
+
           # 推送
           git push
+
+      # ────────────────────────────────────────────────────────
+      # Step 5: 失败时创建 Issue 通知
+      # ────────────────────────────────────────────────────────
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'sync-failed'
+            });
+
+            // 如果已经有未关闭的同步失败 issue，就更新它
+            if (issues.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues[0].number,
+                body: `### ❌ 同步再次失败\n\n**时间**: ${new Date().toISOString()}\n**Workflow**: [#${context.runNumber}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n\n---\n请检查 workflow 日志排查问题。`
+              });
+            } else {
+              // 否则创建新的 issue
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: '❌ 内容同步失败',
+                body: `### 博客内容同步失败\n\n**时间**: ${new Date().toISOString()}\n**Commit**: ${context.sha}\n**Workflow**: [#${context.runNumber}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n\n---\n请检查 [workflow 日志](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) 排查问题。`,
+                labels: ['sync-failed', 'bug']
+              });
+            }
