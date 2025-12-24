@@ -1,9 +1,10 @@
 ---
 title: Distributed Training Handbook
 description: distributed training
-publishDate: "1 Nov 2025"
-updatedDate: "1 Nov 2025"
+publishDate: "1 Dec 2025"
+updatedDate: "1 Dec 2025"
 tags: ["tech/ml"]
+draft: true
 ---
 
 ## Background
