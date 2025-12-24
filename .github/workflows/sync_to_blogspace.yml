@@ -54,30 +54,7 @@ jobs:
           # 先创建并切换到新分支（在 rsync 之前的状态）
           git checkout -b "$BRANCH"
 
-          # 调试：比较源目录和目标目录的差异
-          echo "=== Comparing directories before rsync ==="
-          echo "Files in content (source):"
-          find ../content -maxdepth 1 -type f -o -maxdepth 1 -type d ! -name '.git' ! -name '.github' ! -name '.scripts' ! -name 'content' | sort
-          echo ""
-          echo "Files in blog/src/content/post (target):"
-          find src/content/post -maxdepth 1 -type f -o -maxdepth 1 -type d | sort
-          echo ""
-          echo "=== Checking dist directory specifically ==="
-          if [ -d "../content/dist" ]; then
-            echo "✓ Source has dist directory"
-            ls -la ../content/dist/
-          else
-            echo "✗ Source does NOT have dist directory"
-          fi
-          if [ -d "src/content/post/dist" ]; then
-            echo "✓ Target has dist directory"
-            ls -la src/content/post/dist/
-          else
-            echo "✗ Target does NOT have dist directory"
-          fi
-          echo ""
-
-          # 现在 rsync 会在这个新分支上产生变更
+          # 同步内容到新分支
           rsync -av --delete \
             --exclude='.git' \
             --exclude='.github' \
@@ -87,14 +64,6 @@ jobs:
 
           # 检查是否有变更
           git add src/content/post
-
-          # 临时调试：查看 git status 和 diff
-          echo "=== Git status ==="
-          git status
-          echo "=== Files changed ==="
-          git diff --staged --name-only
-          echo "=== Diff summary ==="
-          git diff --staged --stat
 
           # 只有有变更时才 commit 和 push
           if git diff --staged --quiet; then
@@ -113,6 +82,7 @@ jobs:
         if: steps.commit-push.outputs.has_changes == 'true'
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.BLOG_SYNC_TOKEN }}
           script: |
             const branch = '${{ steps.commit-push.outputs.branch }}';
 
