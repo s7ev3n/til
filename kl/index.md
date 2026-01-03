@@ -3,7 +3,7 @@ title: "KL Divergence"
 description: 'some more detail about kl'
 publishDate: 03 January 2026
 tags: [tech/gems]
-draft: true
+draft: false
 ---
 
 ## Intro
